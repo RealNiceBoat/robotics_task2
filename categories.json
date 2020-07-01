@@ -1,0 +1,15 @@
+{
+    "annotations":[
+        {"area": 0, "iscrowd": 0, "id": 0, "image_id": 1, "category_id": 4, "bbox": [0, 0, 600, 400]}
+    ],
+    "images": [
+        {"file_name": "test.jpg", "id": 1, "width": 600, "height": 400}
+    ],
+    "categories": [
+        {"id": 1, "name": "tops"},
+        {"id": 2, "name": "trousers"},
+        {"id": 3, "name": "outerwear"},
+        {"id": 4, "name": "dresses"},
+        {"id": 5, "name": "skirts"}
+    ]
+}
