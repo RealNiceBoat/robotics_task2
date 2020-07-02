@@ -38,7 +38,7 @@ with Robot() as robot:
     
     def check_doll():
         move_zoom = 0.3 #move forward to get clearer view (can try setting to 0)
-        confirming_snaps = 5
+        confirming_snaps = 5 #number of confirming pictures to take (the more the better)
         robot.move(x=move_zoom)
 
         cat_scores = {
@@ -77,7 +77,7 @@ with Robot() as robot:
             else: doll_score -= 0.3*score #is arbitrary coefficient
 
         print(doll_score) #tbh should be returning this to rank... but if that was necessary, LED misdetect already happened.
-        if doll_score > confirming_snaps*len(wanted_clothing)*0.7: #70% "sure"
+        if doll_score > confirming_snaps*len(wanted_clothing)*0.5: #last one is sureness
             robot.light_green()
             robot.move(x=-move_zoom)
             return True
@@ -109,6 +109,7 @@ with Robot() as robot:
         time.sleep(10) #as long as we need to be sure it is in the claw
         #TODO: find better way than this
         robot.close_claw()
+        robot.brake()
 
     
     #facing forwards
