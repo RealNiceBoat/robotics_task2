@@ -1,115 +1,133 @@
-from time import sleep
 import cv2
 from models import get_human_model, get_clothes_model, get_most_confident, visualize, crop_bbox, id_to_label
-from robot import Robot
+from robot import Robot,PID
 from extract_clothes import get_clothes_class
-
-def find_doll(im,model):
-    '''TODO: should be run in separate thread? non-blocking callback based?'''
-    human_boxes = model(im)
-    best_box = get_most_confident(human_boxes) #returns only 1 box in Boxes
-    if len(best_box) == 0: return None,None,None
-    box_area = best_box.area().tolist()[0]
-    box_centre = best_box.get_centers().tolist()[0]
-    cv2.imshow('Humanfeed',visualize(cur_im,human_boxes))
-    print(f'box area: {box_area}, box centre: {box_centre}')
-    return best_box.tensor.tolist()[0],box_area,box_centre
-
-def check_box_is_doll(box_area):
-    '''TODO: better checking, add more params as needed'''
-    #TODO: some threshold size? besides box size and confidence thresholding, how to detect dolls accurately? or hardcode motion?
-    return True#abs(box_area-66666) < 300
-
-def grip_doll(robot):
-    '''TODO: movement routine to grab doll'''
-    #TODO: might need to move forward till bbox is certain size?
-    print("GREABBBYSDFYGB*SDFAF")
-    return
+import time
 
 #nms is threshold for IoU, score is threshold for confidence
 human_model = get_human_model(nms_thres=0.001,score_thres=0.95)
 clothes_model = get_clothes_model(nms_thres=0.3,score_thres=0.75)
+box_pid = PID(1920/2,1.0,0,0.0) #1080p
+clothes_text = get_clothes_class(".","./encoded_words.pkl")
 
-clothes = get_clothes_class(".","./encoded_words.pkl")
-wanted_clothing = set(clothes.process_input("i love my top as well as my trousers so much!")) #set(['tops','trousers'])
+def find_doll(im):
+    human_boxes = human_model(im)
+    best_box = get_most_confident(human_boxes) #returns only 1 box in Boxes
+    if len(best_box) == 0: return None,None,None
+    box_area = best_box.area().tolist()[0]
+    box_centre = best_box.get_centers().tolist()[0]
+    #cv2.imshow('Humanfeed',visualize(cur_im,human_boxes))
+    print(f'box area: {box_area}, box centre: {box_centre}')
+    return best_box.tensor.tolist()[0],box_area,box_centre
+
+wanted_clothing = clothes_text.process_input(input("Enter description: "))
 print(wanted_clothing)
-dolls_found = 0
 
-isTuning = True
-
-if not isTuning: input('Enter anything to begin.')
-
-#TODO: pLeasE PlacE the bOT 30cm fRom dOLL, how to keep distance from dolls constant? what if dolls arent in straight line?
+doll_pos = -1
 with Robot() as robot:
     robot.reset_origin()
     robot.cam_doll()
-    #ini_orientation = robot.pos[2]
 
-    cv2.namedWindow('Livefeed',cv2.WINDOW_NORMAL)
-    while dolls_found < 3 or isTuning: 
-        cv2.namedWindow('Humanfeed',cv2.WINDOW_NORMAL)
-        cv2.namedWindow('Clothesfeed',cv2.WINDOW_NORMAL)
+    '''Get to the centre of task 2 zone
+    robot.move(x=0.4) #get off exit completely
+    if plan==1: robot.move(x=0.6,y=0.8)
+    elif plan==2: robot.move(x=0.6,y=0.0)
+    elif plan==3: robot.move(x=0.6,y=-0.8)
+    #if diagonals fail/cause rotation, decompose this motion
+    '''
+    
+    def check_doll():
+        move_zoom = 0.3 #move forward to get clearer view (can try setting to 0)
+        confirming_snaps = 5
+        robot.move(x=move_zoom)
 
-        cv2.waitKey(10)
-        #Close livefeed window to force stop
-        if cv2.getWindowProperty('Livefeed',cv2.WND_PROP_VISIBLE) < 1: 
-            print("Stopping!")
-            break
+        cat_scores = {
+            "tops":0.0,
+            "trousers":0.0,
+            "outerwear":0.0,
+            "dresses":0.0,
+            "skirts":0.0
+        }
+        doll_score = 0.0
+        snaps = 0 #number of pictures taken
+        while snaps < confirming_snaps:
+            if not robot.hasNewFrame: continue
+            robot.hasNewFrame = False
+            cur_im = robot.frame.copy()
 
-        if not robot.hasNewFrame: continue
-        robot.hasNewFrame = False
+            best_box,_,_ = find_doll(cur_im)
+            if best_box is None: continue
 
-        cur_im = robot.frame.copy()
-        cv2.imshow('Livefeed',cur_im)
+            new_im,_ = crop_bbox(cur_im,best_box,b=0.1) #b is the extra margin
+            outputs = clothes_model(new_im)['instances'].to('cpu')
+            if len(outputs) == 0: continue
 
-        '''Step 1: find doll box'''
-        best_box,box_area,box_centre = find_doll(cur_im,human_model)
-        if best_box is None or not check_box_is_doll(box_area): 
-            robot.brake()
-            continue
+            classes = id_to_label(outputs.pred_classes.tolist())
+            scores = outputs.scores.tolist()
+            bboxes = outputs.pred_boxes.tensor.tolist()
+            for cat,score,bbox in zip(classes,scores,bboxes):
+                #TODO: use bbox to check if valid. aka everything about dresses is less than 0.8*area, tops are on top, skirts are below...
+                cat_scores[cat] += score
+            snaps += 1
 
-        '''Step 2: centre on doll box'''
-        e = box_centre[0] - 1920/2 #1080p resolution, error is in pixels
-        #TODO: PID??? below centralizes bot to doll
-        #TODO: correction to ensure robot remains oriented to ini_orientation?
-        if e > 5: robot.speed(x=-50)
-        elif e < -5: robot.speed(x=50)
-        if e >= 5: continue
+        print(cat_scores)
+        for cat,score in cat_scores.items():
+            #TODO: subtract only for clearly contradictory clothes item, in case request only trousers but the doll wears trousers + top?
+            if cat in wanted_clothing: doll_score += score
+            else: doll_score -= 0.3*score #is arbitrary coefficient
 
-        '''Step 3: identify doll'''
-        robot.brake()
-        #TODO: move towards doll?
-        new_im,offset = crop_bbox(cur_im,best_box,b=0.1) #b is the extra margin
-        outputs = clothes_model(new_im)
-        cv2.imshow('Clothesfeed',visualize(new_im,outputs))
-
-        present_classes = id_to_label(outputs['instances'].pred_classes.tolist())
-
-        #TODO: Better way to evaluate for match (current is: confidence filter, then subset check)
-        if wanted_clothing.issubset(present_classes):
+        print(doll_score) #tbh should be returning this to rank... but if that was necessary, LED misdetect already happened.
+        if doll_score > confirming_snaps*len(wanted_clothing)*0.7: #70% "sure"
             robot.light_green()
-            grip_doll(robot)
+            robot.move(x=-move_zoom)
+            return True
         else:
             robot.light_red()
-        
-        dolls_found += 1
+            robot.move(x=-move_zoom)
+            return False
 
-    print("Completed!")            
-    cv2.destroyAllWindows()
+    def grab_doll():
+        robot.open_claw()
+        prev_time = time.time()
+        while True:
+            if not robot.hasNewFrame: continue
+            robot.hasNewFrame = False
+            cur_im = robot.frame.copy()
+            
+            best_box,box_area,box_centre = find_doll(cur_im)
+            if best_box is None: continue
+
+            cur_time = time.time()
+            val = box_pid.update(box_centre[0],cur_time-prev_time)
+            prev_time = cur_time
+
+            robot.move(x=0.1,y=val,buffer=0.0) #pid corrected box alignment lol
+            
+            if box_area > 750*350: break #TODO: Tune this area
+        
+        robot.speed(x=10) #MOVE VERY SLOWLY so as to not push doll over?
+        time.sleep(10) #as long as we need to be sure it is in the claw
+        #TODO: find better way than this
+        robot.close_claw()
+
+    
+    #facing forwards
+    if check_doll(): doll_pos = 2
+    robot.turn(-90)
+    #facing left
+    if check_doll(): doll_pos = 1
+    robot.turn(180)
+    #facing right
+    if check_doll(): doll_pos = 3
+
+    #from facing right...
+    if doll_pos==1: robot.turn(-180)
+    elif doll_pos==2: robot.turn(-90)
+    elif doll_pos==3: pass
+    grab_doll()
+
+    print("Completed!")
 
 '''
 https://robomaster-dev.readthedocs.io/en/latest/sdk/api.html
-'''
-
-'''
-my current plan:
-0. Function that resets arm abs position for camera to be ideally positioned
-1. move robot left/right till only 1 large & high confidence bounding box
-2. Centralize bounding box, move inwards till certain area, take image, crop around the box, do identification
-3. No need exact match! The clothes requested should just be within the bounding box list (cut out low confidence predictions without increasing NMS threshold)
-4. if match, move inwards while keeping bounding box centralized till certain size, then execute hardcoded wiggle and pick routine
-
-^ALWAYS KEEP THE ROTATION OF BOT FORWARDS, SO MOVE LEFT RIGHT TO ADJUST NOT ROTATE
-^maybe dont move inwards for 2, else have to move outwards again lest we hit down a doll, after 1080p is enough to crop since our model was trained on 400x600
-^sanity check: Skirt is large area, top is top, trousers is bottom, etc, if its weird -0.5 from cofidence or smth
 '''
