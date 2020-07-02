@@ -150,19 +150,21 @@ class Robot:
 
     def reset_origin(self):
         self.send('robotic_arm','move','x',-500,'y',-500)
+        sleep(1)
         #TODO: transformation layer over chassis position and robot arm position
+        #transformation layer not necessary if arm motion is relative to this lowest position!
 
     def cam_doll(self):
         '''TODO: Move arm to position where camera is facing forwards'''
-        self.send('robotic_arm','moveto','x',50,'y',50) #in cm
+        self.send('robotic_arm','move','x',50,'y',50) #in cm
         sleep(1)
-        raise NotImplementedError
+        #raise NotImplementedError
 
     def cam_ground(self):
         '''TODO: Move arm to position where camera is facing ground'''
-        self.send('robotic_arm','moveto','x',210,'y',64) #in cm
+        self.send('robotic_arm','move','x',210,'y',64) #in cm
         sleep(1)
-        raise NotImplementedError
+        #raise NotImplementedError
 
     def open_arm(self):
         self.send('robotic_gripper open 1')
@@ -180,3 +182,9 @@ class Robot:
         self.send('led control comp bottom_all r 0 g 255 b 0 effect solid')
         sleep(1)
         self.send('led control comp bottom_all r 255 g 255 b 255 effect solid')
+
+if __name__ == "__main__":
+    #python -i robot.py
+    robot = Robot('192.168.1.2').open()
+    robot.reset_origin()
+    robot.cam_doll()
