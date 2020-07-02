@@ -46,6 +46,7 @@ class Robot:
 
         self.isOpen = False
         self.frame = None
+        self.hasNewFrame = False
         self.stream = None
         self.pos = [0,0,0]
 
@@ -96,6 +97,7 @@ class Robot:
         self.stream = cv2.VideoCapture(f'tcp://@{self.ip}:{VIDEO_PORT}')
         while self.stream.isOpened() and self.isOpen: 
             _, self.frame = self.stream.read()
+            self.hasNewFrame = True
 
     def __recvmsg(self):
         while self.isOpen:
@@ -120,7 +122,7 @@ class Robot:
 
     def move(self,x=.0,y=.0,wait=True):
         '''
-        Move robot in metres relative to absolute origin (will move diagonally). Speed limit of 0.3m/s.
+        Move robot in metres relative to current position (will move diagonally). Speed limit of 0.3m/s.
         - x (number, default: 0.0): distance in x axis to move in metres
         - y (number, default: 0.0): distance in y axis to move in metres
         - wait (bool, default: True): whether to wait for action to complete
@@ -131,26 +133,24 @@ class Robot:
     def speed(self,x=.0,y=.0):
         '''
         Move robot at speed (% of 0.3m/s) (will move diagonally). Speed limit of 0.3m/s.
-        - x (number, default: 0.0): -100 <= x <= 100
-        - y (number, default: 0.0): -100 <= y <= 100
+        - x (number, default: 0.0): between -100 to 100
+        - y (number, default: 0.0): between -100 to 100
         '''
         self.send('chassis','speed','x',x/100.0*SPD_LIMIT,'y',y/100.0*SPD_LIMIT) #doesnt account for diagonals properly
     def brake(self): self.speed()
 
     def turn(self,ang,wait=True):
         '''
-        TODO: I dont know if positive is clockwise... relative to absolute origin. Speed limit of 10deg/s.
+        Rotate robot in degrees relative to current rotation. Speed limit of 10deg/s.
         - ang (number): angle to turn in degrees
         - wait (bool, default: True): whether to wait for action to complete
         '''
         self.send('chassis','move','z',ang,'vz',TURN_LIMIT)
         if wait: sleep(calculate_turn_time(ang-self.pos[2])+BUFFER_TIME) #TODO: doesnt work for the 0-> 359 issue
 
-    def reset_arm(self):
-        '''TODO: So its calibrated to the robot arm's position at robot boot... Great... This will need constant retuning if we dont reset the arm at shutdown. Just move the arm as inwards and low as it can for reset?'''
-        self.send('robotic_arm','moveto','x',50000,'y',50000) #in cm
-        #reboots robot... guess not
-        raise NotImplementedError
+    def reset_origin(self):
+        self.send('robotic_arm','move','x',-500,'y',-500)
+        #TODO: transformation layer over chassis position and robot arm position
 
     def cam_doll(self):
         '''TODO: Move arm to position where camera is facing forwards'''
@@ -162,10 +162,6 @@ class Robot:
         '''TODO: Move arm to position where camera is facing ground'''
         self.send('robotic_arm','moveto','x',210,'y',64) #in cm
         sleep(1)
-        raise NotImplementedError
-
-    def grip_doll(self):
-        '''TODO: movement routine to grab doll'''
         raise NotImplementedError
 
     def open_arm(self):
@@ -184,104 +180,3 @@ class Robot:
         self.send('led control comp bottom_all r 0 g 255 b 0 effect solid')
         sleep(1)
         self.send('led control comp bottom_all r 255 g 255 b 255 effect solid')
-
-if __name__ == "__main__":
-    #this is task2. I hope task1 is as simple as executing a list of instructions
-    from models import get_human_model, get_clothes_model, get_most_confident, visualize, crop_bbox, id_to_label
-
-    human_model = get_human_model()
-    clothes_model = get_clothes_model(nms_thres=0.2,score_thres=0.6) #nms is threshold for IoU, score is threshold for confidence
-
-    wanted_clothing = set((lambda x: [x])(1)) #(expecting a list from imported function @haohui)
-
-    dolls = 0
-
-    #TODO: pLeasE PlacE the bOT 30cm fRom dOLL, how to keep distance from dolls constant? what if dolls arent in straight line?
-    with Robot('192.168.1.2') as robot:
-        robot.cam_doll()
-        ini_orientation = robot.pos[2]
-
-        cv2.namedWindow('Livefeed',cv2.WINDOW_NORMAL)
-        while dolls < 3:
-            #recreate windows in case you closed them idiot
-            
-            cv2.namedWindow('Humanfeed',cv2.WINDOW_NORMAL)
-            cv2.namedWindow('Clothesfeed',cv2.WINDOW_NORMAL)
-
-            cv2.waitKey(10)
-            if cv2.getWindowProperty('Livefeed',cv2.WND_PROP_VISIBLE) < 1: #code can be forced stop by closing livefeed window
-                print("Stopping!")
-                break
-
-            cur_im = robot.frame.copy()
-            cv2.imshow('Livefeed',cur_im)
-
-            #TODO: should be run in separate thread?
-            human_boxes = human_model(cur_im)
-            best_box = get_most_confident(human_boxes) #returns only 1 box in Boxes
-            box_area = best_box.area().tolist()[0]
-            box_centre = best_box.get_centers().tolist()[0]
-            cv2.imshow('Humanfeed',visualize(cur_im,human_boxes))
-            print(f'box area: {box_area}, box centre: {box_centre}')
-
-            #TODO: some threshold size??? besides box size and confidence thresholding, can also use clothes detector... what if dont detect...
-            #how to detect dolls accurately? or hardcode motion?
-            if abs(box_area-9000) < 300:
-                e = box_centre[0] - 1920/2 #1080p resolution, error is in pixels
-                #TODO: PID??? below centralizes bot to doll
-                #TODO: correction to ensure robot remains oriented to ini_orientation? robot.turn(0)
-                if e > 5:
-                    robot.speed(x=50)
-                elif e < -5:
-                    robot.speed(x=-50)
-                else:
-                    robot.brake()
-                    #TODO: move towards doll?
-                    new_im,offset = crop_bbox(cur_im,best_box.tensor.tolist()[0],b=0.1) #b is the extra margin
-                    outputs = clothes_model(new_im)
-                    cv2.imshow('Clothesfeed',visualize(new_im,outputs))
-
-                    present_classes = id_to_label(outputs['instances'].pred_classes.tolist())
-                    if len(present_classes) == 0: continue #further subroutine needed to ignore the fake box
-                    #TODO: Better way to evaluate for match (current is: confidence filter, then subset check)
-                    if wanted_clothing.issubset(present_classes):
-                        robot.light_green()
-                        robot.grip_doll() #TODO: might need to move forward till bbox is certain size?
-                    else:
-                        robot.light_red()
-                    
-                    dolls += 1
-
-        print("Completed!")            
-        cv2.destroyAllWindows()
-
-'''
-https://robomaster-dev.readthedocs.io/en/latest/sdk/api.html
-'''
-
-'''
-Boxes.area() #tensor array of area of each box
-Boxes.nonempty(pixel_threshold) #keep boxes whose width & height are greater than threshold
-Boxes.get_centers() #tensor array of (x,y) of centre of boxes
-Boxes.scale(x,y) #rescale boxes by factor x and y
-BoxMode.convert(boxes,XYXY_ABS,XYWH_ABS) #convert boxes from mode to mode (please only do this at the end, the above functions only work correctly for XYXY)
-'''
-
-'''
-my current plan:
-0. Function that resets arm abs position for camera to be ideally positioned
-1. human cropper running in fast mode (high thres NMS), move robot left/right till only 1 large & high confidence bounding box
-2. Centralize bounding box, move inwards till certain area, take image, crop around the box, do identification
-3. No need exact match! The clothes requested should just be within the bounding box list (cut out low confidence predictions without increasing NMS threshold)
-4. if match, move inwards while keeping bounding box centralized till certain size, then execute hardcoded wiggle and pick routine
-
-^ALWAYS KEEP THE ROTATION OF BOT FORWARDS, SO MOVE LEFT RIGHT TO ADJUST NOT ROTATE
-^maybe dont move inwards for 2, else have to move outwards again lest we hit down a doll, after 1080p is enough to crop since our model was trained on 400x600
-^sanity check: Skirt is large area, top is top, trousers is bottom, etc, if its weird -0.5 from cofidence or smth
-'''
-        
-
-
-
-
-        
