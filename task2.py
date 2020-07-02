@@ -2,11 +2,13 @@ from time import sleep
 import cv2
 from models import get_human_model, get_clothes_model, get_most_confident, visualize, crop_bbox, id_to_label
 from robot import Robot
+from extract_clothes import get_clothes_class
 
 def find_doll(im,model):
     '''TODO: should be run in separate thread? non-blocking callback based?'''
     human_boxes = model(im)
     best_box = get_most_confident(human_boxes) #returns only 1 box in Boxes
+    if len(best_box) == 0: return None,None,None
     box_area = best_box.area().tolist()[0]
     box_centre = best_box.get_centers().tolist()[0]
     cv2.imshow('Humanfeed',visualize(cur_im,human_boxes))
@@ -16,26 +18,29 @@ def find_doll(im,model):
 def check_box_is_doll(box_area):
     '''TODO: better checking, add more params as needed'''
     #TODO: some threshold size? besides box size and confidence thresholding, how to detect dolls accurately? or hardcode motion?
-    return abs(box_area-66666) < 300
+    return True#abs(box_area-66666) < 300
 
 def grip_doll(robot):
     '''TODO: movement routine to grab doll'''
     #TODO: might need to move forward till bbox is certain size?
-    raise NotImplementedError
+    print("GREABBBYSDFYGB*SDFAF")
+    return
 
 #nms is threshold for IoU, score is threshold for confidence
-human_model = get_human_model(nms_thres=0.2,score_thres=0.6)
-clothes_model = get_clothes_model(nms_thres=0.2,score_thres=0.6)
+human_model = get_human_model(nms_thres=0.001,score_thres=0.95)
+clothes_model = get_clothes_model(nms_thres=0.3,score_thres=0.75)
 
-wanted_clothing = set((lambda x: [x])(1)) #(expecting a list from imported function @haohui)
+clothes = get_clothes_class(".","./encoded_words.pkl")
+wanted_clothing = set(clothes.process_input("i love my top as well as my trousers so much!")) #set(['tops','trousers'])
+print(wanted_clothing)
 dolls_found = 0
 
-isTuning = False
+isTuning = True
 
 if not isTuning: input('Enter anything to begin.')
 
 #TODO: pLeasE PlacE the bOT 30cm fRom dOLL, how to keep distance from dolls constant? what if dolls arent in straight line?
-with Robot('192.168.1.2') as robot:
+with Robot() as robot:
     robot.reset_origin()
     robot.cam_doll()
     #ini_orientation = robot.pos[2]
@@ -59,14 +64,16 @@ with Robot('192.168.1.2') as robot:
 
         '''Step 1: find doll box'''
         best_box,box_area,box_centre = find_doll(cur_im,human_model)
-        if not check_box_is_doll(box_area): continue
+        if best_box is None or not check_box_is_doll(box_area): 
+            robot.brake()
+            continue
 
         '''Step 2: centre on doll box'''
         e = box_centre[0] - 1920/2 #1080p resolution, error is in pixels
         #TODO: PID??? below centralizes bot to doll
         #TODO: correction to ensure robot remains oriented to ini_orientation?
-        if e > 5: robot.speed(x=50)
-        elif e < -5: robot.speed(x=-50)
+        if e > 5: robot.speed(x=-50)
+        elif e < -5: robot.speed(x=50)
         if e >= 5: continue
 
         '''Step 3: identify doll'''

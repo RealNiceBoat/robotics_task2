@@ -37,7 +37,8 @@ cfg_clothes.MODEL.ROI_HEADS.NUM_CLASSES = 5
 cfg_clothes.DATASETS.TRAIN = ("categories",)
 build_detection_train_loader(cfg_clothes) #force meta to load
 metadata = MetadataCatalog.get("categories")
-def id_to_label(ids): return [metadata.thing_classes[metadata.thing_dataset_id_to_contiguous_id[id]] for id in ids]
+print(metadata)
+def id_to_label(ids): return [metadata.thing_classes[id] for id in ids]
 
 def get_clothes_model(nms_thres=0.2,score_thres=0.6):
     cfg_clothes.MODEL.ROI_HEADS.NMS_THRESH_TEST = nms_thres
@@ -60,6 +61,7 @@ def visualize(im,outputs):
     return im_out
 
 def get_most_confident(outputs):
+    if len(outputs["instances"]) == 0: return []
     outputs = outputs["instances"].to("cpu")
     bybest = sorted([(i,s) for i,s in enumerate(outputs.scores.tolist())],key=lambda x:x[1],reverse=True)
     return outputs[bybest[0][0]].pred_boxes

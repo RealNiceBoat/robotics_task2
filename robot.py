@@ -52,18 +52,18 @@ class Robot:
 
     def open(self):
         self.cmd_feedback_thread = Thread(target=self.__recvmsg)
-        self.vid_receive_thread = Thread(target=self.__recvvideo)
+        self.vid_receive_thread = Thread(target=self.__recvvideo,daemon=True)
         self.push_thread = Thread(target=self.__recvpush)
         
         try:
             self.ctrl_sock.connect((self.ip,CTRL_PORT))
+            self.isOpen = True
             self.send('command')
             self.push_sock.connect((self.ip,PUSH_PORT))
         except Exception as e:
             self.close()
             raise(e)
 
-        self.isOpen = True
         self.cmd_feedback_thread.start()
         self.push_thread.start()
         self.vid_receive_thread.start()
@@ -79,21 +79,22 @@ class Robot:
         self.isOpen = False
         self.ctrl_sock.close()
         self.stream.release()
-        self.cmd_feedback_thread.join()
-        self.vid_receive_thread.join()
-        self.push_thread.join()
+        #self.cmd_feedback_thread.join()
+        #self.vid_receive_thread.join()
+        #self.push_thread.join()
         print(f"Disconnected from {self.ip}")
     
     def send(self,*args):
         '''Send commands directly! If there is multiple args it will join them with spaces.'''
         assert(self.isOpen)
-        cmdstring = ' '.join(args)+';'
+        cmdstring = ' '.join([str(a) for a in args])+';'
         self.ctrl_sock.sendall(cmdstring.encode('utf8'))
         print(f'Sent: {cmdstring}')
 
     def __recvvideo(self):
         self.send('stream on')
-        self.send('camera exposure high') #i saw this in their example code
+        sleep(0.5)
+        #self.send('camera exposure high') #i saw this in their example code
         self.stream = cv2.VideoCapture(f'tcp://@{self.ip}:{VIDEO_PORT}')
         while self.stream.isOpened() and self.isOpen: 
             _, self.frame = self.stream.read()
@@ -127,8 +128,8 @@ class Robot:
         - y (number, default: 0.0): distance in y axis to move in metres
         - wait (bool, default: True): whether to wait for action to complete
         '''
-        self.send('chassis','move','x',x,'y',y,'vxy',SPD_LIMIT)
-        if wait: sleep(calculate_move_time(x-self.pos[0],y-self.pos[1])+BUFFER_TIME)
+        self.send('chassis','move','x',y,'y',x,'vxy',SPD_LIMIT)
+        if wait: sleep(calculate_move_time(x,y)+BUFFER_TIME)
 
     def speed(self,x=.0,y=.0):
         '''
@@ -136,7 +137,7 @@ class Robot:
         - x (number, default: 0.0): between -100 to 100
         - y (number, default: 0.0): between -100 to 100
         '''
-        self.send('chassis','speed','x',x/100.0*SPD_LIMIT,'y',y/100.0*SPD_LIMIT) #doesnt account for diagonals properly
+        self.send('chassis','speed','x',y/100.0*SPD_LIMIT,'y',x/100.0*SPD_LIMIT) #doesnt account for diagonals properly
     def brake(self): self.speed()
 
     def turn(self,ang,wait=True):
@@ -146,7 +147,7 @@ class Robot:
         - wait (bool, default: True): whether to wait for action to complete
         '''
         self.send('chassis','move','z',ang,'vz',TURN_LIMIT)
-        if wait: sleep(calculate_turn_time(ang-self.pos[2])+BUFFER_TIME) #TODO: doesnt work for the 0-> 359 issue
+        if wait: sleep(calculate_turn_time(ang)+BUFFER_TIME) #TODO: doesnt work for the 0-> 359 issue
 
     def reset_origin(self):
         self.send('robotic_arm','move','x',-500,'y',-500)
@@ -156,7 +157,7 @@ class Robot:
 
     def cam_doll(self):
         '''TODO: Move arm to position where camera is facing forwards'''
-        self.send('robotic_arm','move','x',50,'y',50) #in cm
+        self.send('robotic_arm','move','x',10,'y',20) #in cm
         sleep(1)
         #raise NotImplementedError
 
@@ -185,6 +186,6 @@ class Robot:
 
 if __name__ == "__main__":
     #python -i robot.py
-    robot = Robot('192.168.1.2').open()
+    robot = Robot().open()
     robot.reset_origin()
     robot.cam_doll()
