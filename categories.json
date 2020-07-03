@@ -6,10 +6,10 @@
         {"file_name": "test.jpg", "id": 1, "width": 600, "height": 400}
     ],
     "categories": [
-        {"id": 1, "name": "tops"},
+        {"id": 1, "name": "top"},
         {"id": 2, "name": "trousers"},
-        {"id": 3, "name": "outerwear"},
-        {"id": 4, "name": "dresses"},
-        {"id": 5, "name": "skirts"}
+        {"id": 3, "name": "outwear"},
+        {"id": 4, "name": "women dresses"},
+        {"id": 5, "name": "women skirts"}
     ]
 }

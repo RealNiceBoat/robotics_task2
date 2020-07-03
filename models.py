@@ -60,10 +60,15 @@ def visualize(im,outputs):
     im_out = v.get_image()
     return im_out
 
-def get_most_confident(outputs):
+def get_most_confident(outputs,min_area,max_area):
     if len(outputs["instances"]) == 0: return []
     outputs = outputs["instances"].to("cpu")
-    bybest = sorted([(i,s) for i,s in enumerate(outputs.scores.tolist())],key=lambda x:x[1],reverse=True)
+    areas = outputs.pred_boxes.area().tolist()
+    bybest = sorted([(i,s) for i,s in enumerate(outputs.scores.tolist())
+            if min_area<areas[i] and areas[i]<max_area],
+        key=lambda x:x[1],
+        reverse=True)
+    if len(bybest) == 0: return []
     return outputs[bybest[0][0]].pred_boxes
 
 def crop_bbox(im,bbox,b=0.1):
