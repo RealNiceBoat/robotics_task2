@@ -24,23 +24,24 @@ cv2.namedWindow('Humanfeed', cv2.WINDOW_AUTOSIZE)
 cv2.namedWindow('Clothesfeed', cv2.WINDOW_AUTOSIZE)
 
 doll_pos = -1
-with Robot('192.168.2.1') as robot:
+with Robot() as robot:
     robot.reset_origin()
     robot.cam_doll()
 
-    wanted_clothing = ['women dresses']#clothes_text.process_input(input("Enter description: "))
+    wanted_clothing = clothes_text.process_input(input("Enter description: "))
     print(wanted_clothing)
 
     '''Get to the centre of task 2 zone
-    robot.move(x=0.4) #get off exit completely
+    
     if plan==1: robot.move(x=0.6,y=0.8)
     elif plan==2: robot.move(x=0.6,y=0.0)
     elif plan==3: robot.move(x=0.6,y=-0.8)
     #if diagonals fail/cause rotation, decompose this motion
     '''
+    robot.move(x=0.8) #get off exit completely
     
     def check_doll():
-        move_zoom = 0.0#0.3 #move forward to get clearer view (can try setting to 0)
+        move_zoom = 0.5#0.3 #move forward to get clearer view (can try setting to 0)
         confirming_snaps = 10 #number of confirming pictures to take (the more the better)
         robot.move(x=move_zoom)
 
@@ -81,20 +82,17 @@ with Robot('192.168.2.1') as robot:
             else: doll_score -= 0.3*score #is arbitrary coefficient
 
         print(doll_score) #tbh should be returning this to rank... but if that was necessary, LED misdetect already happened.
-        if doll_score > confirming_snaps*len(wanted_clothing)*0.5: #last one is sureness
-            robot.light_green()
-            robot.move(x=-move_zoom)
-            return True
-        else:
-            robot.light_red()
-            robot.move(x=-move_zoom)
-            return False
+        isCorrect = doll_score > confirming_snaps*len(wanted_clothing)*0.4 #last one is sureness
+        if isCorrect: robot.light_green()
+        else: robot.light_red()
+
+        robot.move(x=-move_zoom)
+        return isCorrect
 
     box_pid = PID(1280.0/2,0.2500,0.0,0.0)
     def grab_doll():
         robot.open_claw()
         prev_time = time.time()
-        isCentred = False
         while True:
             if not robot.hasNewFrame: continue
             robot.hasNewFrame = False
@@ -114,19 +112,13 @@ with Robot('192.168.2.1') as robot:
             val = box_pid.update(box_centre[0],cur_time-prev_time)
             prev_time = cur_time
 
-            if False and not isCentred and abs(val) > 1:
-                print(box_centre[0],cur_im.shape[1]/2,-val)
-                robot.speed(z=-val)
-                continue
-
-            isCentred = True
             robot.speed(x=35,z=-val)
             print(f'Bottom Edge: {best_box[3]}, PID Turn %{-val}')
 
-            if (box_area > 59000 and best_box[3] > 710): #for 720p #box_area > 64000 #abs(val) < 15 and #TODO: TUNE THIS
+            if (box_area > 54000 and best_box[3] > 690): #for 720p #box_area > 64000 #abs(val) < 15 and #TODO: TUNE THIS
                 if -val > 5: robot.turn(8)
                 elif -val < -5: robot.turn(-8)
-                robot.move(x=0.1,speed=0.1)
+                robot.move(x=0.3,speed=0.1)
                 break
         #TODO: find better way than this
         #robot.move(x=0.2,speed=0.1)
@@ -136,7 +128,6 @@ with Robot('192.168.2.1') as robot:
     
     #facing forwards
     if check_doll(): doll_pos = 2
-    '''
     robot.turn(-90)
     #facing left
     if check_doll(): doll_pos = 1
@@ -148,7 +139,7 @@ with Robot('192.168.2.1') as robot:
     if doll_pos==1: robot.turn(-180)
     elif doll_pos==2: robot.turn(-90)
     elif doll_pos==3: pass
-    '''
+
     grab_doll()
 
     print("Completed!")

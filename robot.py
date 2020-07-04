@@ -164,7 +164,7 @@ class Robot:
 
     def cam_doll(self):
         '''Move arm to position where camera is facing forwards'''
-        self.send('robotic_arm','move','x',100,'y',100) #in cm
+        self.send('robotic_arm','move','x',100,'y',40) #in cm
         #10,20
         sleep(1)
         #raise NotImplementedError
