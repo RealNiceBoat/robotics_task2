@@ -12,6 +12,7 @@ from detectron2.structures import Boxes, Instances, BoxMode
 
 #Paths
 base_dir = Path('.')
+human_model_path = base_dir/"model_final_997cc7.pkl"
 clothes_model_path = base_dir/"ft-til_resnet101_rcnn_moda_aug-147999-best_val.pth"
 categories_json = base_dir/"categories.json"
 DatasetCatalog.clear()
@@ -20,7 +21,7 @@ register_coco_instances("categories", {}, categories_json, base_dir)
 
 cfg_human = get_cfg()
 cfg_human.merge_from_file(model_zoo.get_config_file("COCO-Keypoints/keypoint_rcnn_R_101_FPN_3x.yaml"))
-cfg_human.MODEL.WEIGHTS = model_zoo.get_checkpoint_url("COCO-Keypoints/keypoint_rcnn_R_101_FPN_3x.yaml")
+cfg_human.MODEL.WEIGHTS = str(human_model_path)
 
 def get_human_model(nms_thres=0.0,score_thres=0.995):
     cfg_human.MODEL.ROI_HEADS.NMS_THRESH_TEST = nms_thres #IoU aka overlap suppression (suppress if overlap > threshold)
@@ -82,7 +83,7 @@ if __name__ == "__main__":
     im = cv2.imread("./unnamed.png")
     human_model = get_human_model()
     human_boxes = human_model(im)
-    best_box = list(get_most_confident(human_boxes).tensor.tolist()[0])
+    best_box = list(get_most_confident(human_boxes,0,1000000).tensor.tolist()[0])
     new_im,offset = crop_bbox(im,best_box,b=0.1) #b is the extra margin
     clothes = get_clothes_model(nms_thres=0.2,score_thres=0.6) #nms is threshold for IoU, score is threshold for confidence
     outputs = clothes(new_im)
